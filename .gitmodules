@@ -1,3 +1,4 @@
 [submodule "vortex"]
 	path = vortex
-	url = https://github.com/vortexgpgpu/vortex.git
+	url = https://github.com/SeanSon2005/Neural-Texture-Decompression.git
+	branch = vortex-ntc
