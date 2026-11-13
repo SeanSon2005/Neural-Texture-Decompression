@@ -1,0 +1,11 @@
+# Keep LF in the repo and working tree so shell scripts, Makefiles and
+# Vortex sources behave the same on Linux, WSL and Windows checkouts.
+* text=auto eol=lf
+
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.exr  binary
+*.bin  binary
+*.npy  binary
+*.npz  binary

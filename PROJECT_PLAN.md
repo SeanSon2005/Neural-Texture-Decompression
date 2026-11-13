@@ -8,15 +8,19 @@ material-aware request batching improve tensor-unit utilization and throughput w
 latency, and how do material access patterns change the answer?** The main architectural
 contribution is a configurable request buffer in SimX (no RTL).
 
-`PROJECT_18.md` deliberately leaves models, formats, kernel mappings, simulator interfaces and
-policies to us. This plan fixes those choices. About 4 weeks remain (target: finals week, ~Dec 7–11;
+The course's Project 18 description (`cs254a_projects.pdf`, slides 72–75) and our proposal
+([`docs/PROPOSAL.md`](docs/PROPOSAL.md)) deliberately leave models, formats, kernel mappings,
+simulator interfaces and policies to us. This plan fixes those choices. About 4 weeks remain (target: finals week, ~Dec 7–11;
 plug in the exact date).
 
 **Decisions confirmed with you:** train our own int8 NTC-style models · SimX request queue feeding
 decoder warps that run on the real TEX/TCU · Vortex tracked as a fork submodule · ~4 weeks.
 
-**Not seen:** the approved team proposal. I assumed `PROJECT_18.md` already folds in its extra
-metrics; if the proposal promises anything else, it needs adding.
+**Proposal check (Nov 12):** every proposal item (three decode paths; throughput, mean/P95 latency,
+tensor utilization, batch occupancy, weight traffic, PSNR; shared-decoder stretch goal) is covered
+here. One deliberate change: the proposal said *pretrained* decoder data (RTXNTC); we train our own
+int8 models instead so features and MLP shapes match TEX and the int8 TCU tile and we get
+bit-exact references. Report this as an adaptation.
 
 ## What the codebase told us (drives the design)
 
@@ -74,7 +78,8 @@ the mechanism by which batching cuts weight traffic.
 
 ```
 Neural-Texture-Decompression/        (this repo)
-  PROJECT_18.md  README.md  .gitignore
+  PROJECT_PLAN.md  README.md  .gitignore  .gitattributes
+  docs/              proposal + reading notes
   vortex/            submodule → team fork, branch `ntc` cut from tag v3.0
   ntc/               PyTorch training, int8 QAT, export, bit-exact NumPy reference decoder
   data/              fetch script + checksums (raw textures not committed); exported artifacts
@@ -87,20 +92,20 @@ Inside the fork: `sim/simx/ntx/{ntx_core,ntx_unit}.{h,cpp}`, edits to `decode.cp
 `socket.*`, `cluster.*`, `types.h`, `VX_config.toml`, `VX_types.toml`, `tcu/tcu_unit.*` (counters),
 `sw/kernel/include/vx_ntx.h`, and tests `tests/regression/ntc_{scalar,tcu,batch}/`.
 
-## Step 0 — Git (first thing after approval)
+## Step 0 — Git
 
-1. `git init -b main` in `/home/astro/cs/CS_254A/project`; add remote
-   `origin = git@github.com:SeanSon2005/Neural-Texture-Decompression.git`; verify with `git ls-remote`.
-2. `.gitignore` (build dirs, toolchain, raw textures, checkpoints, `cs254a_projects.pdf` — course
-   material, kept local unless you say otherwise).
-3. Initial local commit (`PROJECT_18.md`, `.gitignore`, `README.md`). **I will ask before the first push.**
-4. Fork `vortexgpgpu/vortex` (your GitHub action, or I run `gh repo fork` on your say-so), create
-   branch `ntc` at `v3.0`, add as submodule `vortex/`.
+1. Repo and remote `origin = https://github.com/SeanSon2005/Neural-Texture-Decompression.git`: done.
+2. `.gitignore` (build dirs, toolchain, raw textures, checkpoints, exported binaries,
+   `cs254a_projects.pdf` — course material, kept local): done.
+3. `vortex/` submodule at tag `v3.0`, local branch `ntc`: done, but its URL still points at
+   upstream `vortexgpgpu/vortex`. **Open:** fork `vortexgpgpu/vortex` on GitHub, then
+   `git submodule set-url vortex <fork URL>` and push branch `ntc` there, so teammates can fetch
+   the `ntc` commits the superproject records.
 
 ## Phase 1 — Research & setup (Nov 12–18) → Checkpoint 1
 
 - Build v3.0: `../configure --xlen=32 --tooldir=<project>/.tools`, `toolchain_install.sh`, `make -s`.
-- Smoke: `demo`; `gfx_tex` on simx (`-DVX_CFG_EXT_TEX_ENABLE`); `sgemm_tcu` with
+- Smoke: `demo`; `gfx_tex` on simx (`tests/graphics/gfx_tex`, its Makefile adds `-DVX_CFG_EXT_TEX_ENABLE`); `sgemm_tcu` with
   `-DVX_CFG_NUM_THREADS=8 -DVX_CFG_EXT_TCU_ENABLE -DVX_CFG_TCU_INT8_ENABLE -DITYPE=int8 -DOTYPE=int32`.
 - **De-risking spikes** (each a ~50-line kernel, done before anything else is built on them):
   (a) TEX and TCU enabled together; (b) `vx_tex` results moved straight into a `fragment_a` and
