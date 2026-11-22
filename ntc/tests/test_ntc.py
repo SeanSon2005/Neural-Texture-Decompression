@@ -103,3 +103,41 @@ def test_mlp_forward_contract():
     assert mlp_forward(np.array([[10, 4]]), layers).tolist() == [[5]]
     # negative hidden clamps to 0; rounding is floor((acc + 2^(s-1)) / 2^s)
     assert mlp_forward(np.array([[0, 20]]), layers).tolist() == [[0]]
+
+
+# ntc_tcu repacks accumulator -> next-layer A fragment inside each lane. This models the
+# NT=8 WMMA fragment layouts (vx_tensor.h) and the host's row permutation (host.cpp kPerm).
+TCU_PERM = [0, 4, 1, 5, 2, 6, 3, 7]
+
+
+def _a_reg(x, lane, r):
+    """4 int8 inputs held by A register r of a lane: row l/2 + 4m, K word (l&1) + 2q."""
+    m, q = divmod(r, 4)
+    word = (lane & 1) + 2 * q
+    return x[lane // 2 + 4 * m, 4 * word:4 * word + 4]
+
+
+def _c_reg(c, lane, r):
+    """int32 held by accumulator register r of a lane: row l/2 + 4m, column (l&1) + 2j."""
+    m, j = divmod(r, 4)
+    return c[lane // 2 + 4 * m, (lane & 1) + 2 * j]
+
+
+@pytest.mark.parametrize("hidden", [16, 32, 64])
+def test_tcu_lane_local_repack(hidden):
+    rng = np.random.default_rng(hidden)
+    x = rng.integers(-128, 128, (8, 32))
+    w = rng.integers(-127, 128, (hidden, 32))
+    h = x @ w.T                                   # logical layer output, (8 rows, hidden)
+    rows = [(r & ~7) + TCU_PERM[r & 7] for r in range(hidden)]
+    c_phys = x @ w[rows].T                        # what the TCU computes with permuted rows
+    k_tiles = (hidden + 31) // 32
+    h_pad = np.zeros((8, 32 * k_tiles), dtype=h.dtype)
+    h_pad[:, :hidden] = h
+    for t in range(hidden // 8):
+        c_t = c_phys[:, 8 * t:8 * t + 8]
+        for lane in range(8):
+            for m in range(2):
+                packed = [_c_reg(c_t, lane, 4 * m + j) for j in range(4)]
+                want = _a_reg(h_pad[:, 32 * (t // 4):32 * (t // 4) + 32], lane, 4 * m + t % 4)
+                assert list(want) == packed

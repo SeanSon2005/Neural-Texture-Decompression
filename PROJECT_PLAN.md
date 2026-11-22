@@ -134,6 +134,22 @@ expected outputs and a PSNR/size table.
 
 **Exit:** both paths bit-identical to the reference on all materials; baseline table.
 
+**Status (Nov 13): done.**
+- `ntc_scalar` and `ntc_tcu` share `ntc_common/host.cpp`. Both are bit-exact on 4096 mixed
+  requests at H = 16, 32 and 64, and `ntc_tcu` is bit-exact on a 128² image of every material.
+- Repack choice: no shared-memory round trip and no `vx_packlb_f`. The host permutes each
+  layer's output rows in groups of 8, so accumulator → next-A requantize + repack stays inside
+  each lane (`ntc_tcu/kernel.cpp` header; NumPy model in `test_tcu_lane_local_repack`).
+- Baseline (H=32, 1024 requests, `results/phase2_baseline.csv`):
+  - Scalar: ~5.9k cycles/request.
+  - Tensor: a constant ~3.85k cycles per tile, so cycles/request is ≈3.84k at 1/8
+    occupancy (1.5× faster than scalar) and 498 at 8/8 (11.8×).
+  - FIFO tiles over interleaved materials reach only 14% occupancy (3.47k cycles/request).
+    That is the headroom material-aware batching (Phase 3) targets.
+- Instruction mix (tensor): 52% ALU, 25% LSU, 15% TCU.
+- Simulator speed is ~200–450k cycles/s per process. A 4096-request tensor point takes 20–60 s.
+- Images: `results/phase2_images/h32/*.png` and `psnr_h32.csv`.
+
 ## Phase 3 — SimX batching (starts Nov 16 in parallel; done Dec 2) → Checkpoint 3
 
 Built against a dummy fixed-delay decoder kernel first, so it does not wait on Phase 2.

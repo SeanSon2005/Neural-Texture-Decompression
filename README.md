@@ -90,6 +90,36 @@ requests and their expected outputs; `manifest.json` documents the layout
 (see `ntc/export.py`). The integer decode contract every decoder must match
 is in `ntc/quant.py`.
 
+### Decoders on Vortex (Phase 2)
+
+Two decoders share one host (`vortex/tests/regression/ntc_common/host.cpp`) and the
+same feature lookup (8 `vx_tex` per request from the per-stage atlases):
+
+- `ntc_scalar`: one thread per request, the MLP on the integer ALU, lanes may mix materials.
+- `ntc_tcu`: one warp per tile of up to 8 same-material requests. TEX writes the layer-1
+  int8 A fragment in registers, and each layer runs as 8×8×32 int8 WMMA tiles. Requantize
+  and repack into the next layer's A stay inside each lane, because the host stores every
+  layer's output rows permuted (see the header of `ntc_tcu/kernel.cpp`). Tiles are formed
+  FIFO: a material change closes a tile early. This is the unbatched-tensor path.
+
+```bash
+cd ~/ntd
+for h in 16 32 64; do ~/ntd-venv/bin/python -m ntc.vortex_io prepare data/export/h$h; done
+bash experiments/phase2_check.sh      # both decoders, H = 16/32/64, every output bit-exact
+bash experiments/phase2_images.sh     # 128² image per material on Vortex -> PNG + PSNR
+bash experiments/phase2_baseline.sh   # cycles/request, instruction mix, tile occupancy 1..8
+```
+
+`ntc.vortex_io prepare` writes `vortex.txt` (the manifest in a form the C++ host can parse
+without a JSON library) and the vector sets: `vec_mixed_*` holds all materials interleaved,
+and `vec_img<m>_7_*` holds every pixel of a 128² image of material m. Run a single point by hand with:
+
+```bash
+cd ~/ntd-build
+CONFIGS="-DVX_CFG_EXT_TEX_ENABLE -DVX_CFG_EXT_TCU_ENABLE -DVX_CFG_TCU_INT8_ENABLE" \
+  ./ci/blackbox.sh --driver=simx --app=ntc_tcu --threads=8 --args="-e $HOME/ntd/data/export/h32 -v img0_7 -o 4"
+```
+
 ## References
 
 1. Mubarik et al., *Hardware Acceleration of Neural Graphics*, ISCA 2023. arXiv:2303.05735
